@@ -12,6 +12,13 @@
 
             align-items: center;
             justify-items: center;
+
+            grid-template-areas: ". app .";
+            grid-template-columns: 1fr min(80%,700px) 1fr;
+        }
+
+        #app {
+            grid-area: app;
         }
 
         #title {
@@ -22,28 +29,51 @@
             text-align: center;
         }
 
+        #score {
+            display: grid;
+
+            align-items: center;
+            justify-items: center;
+
+            grid-template-columns: 1fr 1fr;
+        }
+
+        #score-correct {
+            color: rgb(37, 150, 37);
+        }
+
+        #score-false {
+            color: rgb(187, 38, 38);
+        }
+
         #post {
             padding: 30px;
 
-            height: 500px;
-
-            margin-bottom: 100px;
+            margin-bottom: 50px;
 
             display: grid;
 
             align-items: center;
             justify-items: center;
+
+            border: 1px solid burlywood;
         }
 
         #img {
-            height: min(100%, 500px);
+            height: 300px;
         }
 
         #comments {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(1, 1fr);
             gap: 20px;
             margin-top: 20px;
+        }
+
+        @media(min-width:940px) {
+            #comments {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
 
         .comment {
@@ -52,12 +82,24 @@
             cursor: pointer;
         }
 
+        .comment:hover {
+            background-color: rgb(126, 104, 75);
+        }
+
         .correct {
             border-color: rgb(37, 150, 37);
+        }
+        
+        .correct:hover {
+            background-color: rgb(37, 150, 37);
         }
 
         .false {
             border-color: rgb(187, 38, 38);
+        }
+
+        .false:hover {
+            background-color: rgb(187, 38, 38);
         }
     </style>
 </head>
@@ -68,14 +110,23 @@
 
     <h4 id="subtitle" v-if="state === 'fetching'">Fetching comments...</h4>
 
+    <div id="score" v-if="score.correct + score.false > 1">
+        <div id="score-correct">
+            Correct: {{ score.correct }}
+        </div>
+        <div id="score-false">
+            False: {{ score.false }}
+        </div>
+    </div>
+
     <div id="post">
-        <h5 id="posttitle">{{ postTitle }}</h5>
-        <img id="img" v-if="state === 'guessing'" v-bind:src="postImage"/>
+        <h5 id="posttitle">{{ currentPost.postTitle }}</h5>
+        <img id="img" v-if="state === 'guessing'" v-bind:src="currentPost.postImage"/>
     </div>
     
     <div id="comments" v-if="state === 'guessing'">
         <div
-            v-for="c in comments"
+            v-for="c in currentPost.comments"
             class="comment"
             v-bind:class="c.c"
             v-on:click="choice(c)"
@@ -87,31 +138,42 @@
 
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script type="module">
+        alert("This website searches the Reddit API which may contain 18+ content.");
+
         const { createApp } = Vue
         
         app = createApp({
           data() {
             return {
-                state: "", 
+                state: "fetching", 
+                innerState: "",
                 subreddit: "196",
-                correctComment: {},
-                comments: [
+                currentPost: {
+                    correctComment: {},
+                    comments: [
 
-                ],
-                postTitle: "",
-                postImage: ""
+                    ],
+                    postTitle: "",
+                    postImage: ""
+                },
+                nextPost: null,
+                score: {
+                    correct: 0,
+                    false: 0
+                }
             }
           },
           methods: {
-            reload() {
-                this.state = "fetching";
+            fetching() {
+                this.innerState = "fetching";
+                this.nextPost = {};
 
                 const minUpvotes = 50;
                 const maxLength = 280;
                 
                 let finalComments = [];
 
-                fetch(`https://www.reddit.com/r/${this.subreddit}/top/.json?t=month`)
+                fetch(`https://www.reddit.com/r/${this.subreddit}/top/.json?t=month&limit=100`)
                 .then(response => response.json())
                 .then(data => {
                     const posts = data.data.children
@@ -120,7 +182,7 @@
 
                     const post = posts[Math.floor(Math.random() * posts.length)].data;
 
-                    this.postTitle = post.title;
+                    this.nextPost.postTitle = post.title;
 
                     let otherPost = null;
                     do {
@@ -131,7 +193,7 @@
                     let fetchPost = fetch(`https://www.reddit.com/r/${this.subreddit}/comments/${post.id}.json`)
                     .then(response => response.json())
                     .then(data => {
-                        this.postImage = data[0].data.children[0].data.url_overridden_by_dest;
+                        this.nextPost.postImage = data[0].data.children[0].data.url_overridden_by_dest;
 
                         const comments = data[1].data.children
                             .filter(comment => !comment.data.stickied)
@@ -169,32 +231,59 @@
                                 comment["c"] = "nothing"
                             }
 
-                            this.correctComment = comments[0];
-                            console.log(this.correctComment);
+                            this.nextPost.correctComment = comments[0];
 
                             comments = comments.sort((a, b) => 0.5 - Math.random());
 
-                            this.comments = comments;
-                            this.state = "guessing"
+                            this.nextPost.comments = comments;
+
+                            if (this.state === "fetching") {
+                                this.state = "guessing";
+                                this.currentPost = this.nextPost;
+                                this.nextPost = null;
+
+                                this.fetching();
+                            }
+
+                            this.innerState = "";
                         }
                     )
                 })
-                
+            },
+            reload() {
+                if (this.nextPost) {
+                    this.state = "guessing";
+                    this.currentPost = this.nextPost;
+                    this.nextPost = null;
+
+                    this.fetching();
+                } else {
+                    this.state = "fetching";
+                    if (this.innerState !== "fetching") {
+                        this.fetching();
+                    }
+                }
             },
             subredditChange(event) {
                 this.subreddit = event.target.value;
+
+                this.nextPost = null;
                 this.reload();
             },
-            choice(comment) {
-                for (let comment of this.comments) {
-                    if (comment.data.id === this.correctComment.data.id) {
+            choice(chosenComment) {
+                if (chosenComment.data.id === this.currentPost.correctComment.data.id) {
+                    this.score.correct += 1;
+                } else {
+                    this.score.false += 1;
+                }
+                for (let comment of this.currentPost.comments) {
+                    if (comment.data.id === this.currentPost.correctComment.data.id) {
                         comment["c"] = "correct"
                     } else {
                         comment["c"] = "false"
                     }
                 }
-
-                setTimeout(this.reload, 4_000);
+                setTimeout(this.reload, 3_000);
             }
           }
         }).mount('#app')
