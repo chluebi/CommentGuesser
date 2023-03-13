@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<head>
+    <title>Comment Guesser</title>
+    <style>
+        body {
+            background-color: black;
+            color: aliceblue;
+
+            font-family:'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+
+            display: grid;
+
+            align-items: center;
+            justify-items: center;
+        }
+
+        #title {
+            text-align: center;
+        }
+
+        #subtitle {
+            text-align: center;
+        }
+
+        #post {
+            padding: 30px;
+
+            height: 500px;
+
+            margin-bottom: 100px;
+
+            display: grid;
+
+            align-items: center;
+            justify-items: center;
+        }
+
+        #img {
+            height: min(100%, 500px);
+        }
+
+        #comments {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .comment {
+            border: 1px solid burlywood;
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        .correct {
+            border-color: rgb(37, 150, 37);
+        }
+
+        .false {
+            border-color: rgb(187, 38, 38);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+    <h1 id="title">Comment Guesser</h1>
+    <h3 id="subtitle"> Find the top comment on a post of subreddit  <input id="subreddit" v-on:change="subredditChange($event)" type="text" value="196"></h3>
+
+    <h4 id="subtitle" v-if="state === 'fetching'">Fetching comments...</h4>
+
+    <div id="post">
+        <h5 id="posttitle">{{ postTitle }}</h5>
+        <img id="img" v-if="state === 'guessing'" v-bind:src="postImage"/>
+    </div>
+    
+    <div id="comments" v-if="state === 'guessing'">
+        <div
+            v-for="c in comments"
+            class="comment"
+            v-bind:class="c.c"
+            v-on:click="choice(c)"
+        >
+        {{ c.data.body }}
+        </div>
+    </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script type="module">
+        const { createApp } = Vue
+        
+        app = createApp({
+          data() {
+            return {
+                state: "", 
+                subreddit: "196",
+                correctComment: {},
+                comments: [
+
+                ],
+                postTitle: "",
+                postImage: ""
+            }
+          },
+          methods: {
+            reload() {
+                this.state = "fetching";
+
+                const minUpvotes = 50;
+                const maxLength = 280;
+                
+                let finalComments = [];
+
+                fetch(`https://www.reddit.com/r/${this.subreddit}/top/.json?t=month`)
+                .then(response => response.json())
+                .then(data => {
+                    const posts = data.data.children
+                        .filter(post => post.data.ups > minUpvotes)
+                        .filter(post => !post.data.stickied);
+
+                    const post = posts[Math.floor(Math.random() * posts.length)].data;
+
+                    this.postTitle = post.title;
+
+                    let otherPost = null;
+                    do {
+                        otherPost = posts[Math.floor(Math.random() * posts.length)].data;
+                    } while (otherPost.name === post.name)
+     
+
+                    let fetchPost = fetch(`https://www.reddit.com/r/${this.subreddit}/comments/${post.id}.json`)
+                    .then(response => response.json())
+                    .then(data => {
+                        this.postImage = data[0].data.children[0].data.url_overridden_by_dest;
+
+                        const comments = data[1].data.children
+                            .filter(comment => !comment.data.stickied)
+                            .filter(comment => comment.data.body != null)
+                            .filter(comment => comment.data.body.length <= maxLength);
+
+                        const topComment = comments[0];
+
+                        const randomComment = comments[Math.floor(Math.random() * (comments.length-1))+1];
+
+                        return [topComment, randomComment]
+                    })
+
+                    let fetchOther = fetch(`https://www.reddit.com/r/${this.subreddit}/comments/${otherPost.id}.json`)
+                    .then(response => response.json())
+                    .then(data => {
+                        const comments = data[1].data.children
+                            .filter(comment => !comment.data.stickied)
+                            .filter(comment => comment.data.body != null)
+                            .filter(comment => comment.data.body.length <= maxLength);
+
+                        const topComment = comments[0];
+
+                        const randomComment = comments[Math.floor(Math.random() * (comments.length-1))+1];
+
+                        return [topComment, randomComment]
+                    })
+
+                    Promise.all(
+                        [fetchPost, fetchOther]
+                    ).then(
+                        responses => {
+                            let comments = responses.flat();
+                            for (let comment of comments) {
+                                comment["c"] = "nothing"
+                            }
+
+                            this.correctComment = comments[0];
+                            console.log(this.correctComment);
+
+                            comments = comments.sort((a, b) => 0.5 - Math.random());
+
+                            this.comments = comments;
+                            this.state = "guessing"
+                        }
+                    )
+                })
+                
+            },
+            subredditChange(event) {
+                this.subreddit = event.target.value;
+                this.reload();
+            },
+            choice(comment) {
+                for (let comment of this.comments) {
+                    if (comment.data.id === this.correctComment.data.id) {
+                        comment["c"] = "correct"
+                    } else {
+                        comment["c"] = "false"
+                    }
+                }
+
+                setTimeout(this.reload, 4_000);
+            }
+          }
+        }).mount('#app')
+        
+        app.reload();
+    </script>
+    
+</body>
